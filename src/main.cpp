@@ -22,7 +22,7 @@ int main()
     vcCap.set(cv::CAP_PROP_FPS, 30); // Set frames per second
     
     std::cout << "Camera opened successfully." << std::endl;
-    
+
     cv::Mat matFrame;
     bool bRunning = true;
     
@@ -53,7 +53,8 @@ int main()
             cv::imshow("Camera Feed", matFrame);
 
             // Break the loop on 'q' key press
-            if (cv::waitKey(1) >= 0) {
+            char key = cv::waitKey(1) & 0xFF;
+            if (key == 'q') {
                 bRunning = false;
             }
         } else {
