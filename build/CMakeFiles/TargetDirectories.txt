@@ -1,3 +1,0 @@
-E:/github/p2p-videocall/build/CMakeFiles/p2p-video-call.dir
-E:/github/p2p-videocall/build/CMakeFiles/ALL_BUILD.dir
-E:/github/p2p-videocall/build/CMakeFiles/ZERO_CHECK.dir
