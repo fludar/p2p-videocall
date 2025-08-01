@@ -1,0 +1,10 @@
+^E:\GITHUB\P2P-VIDEOCALL\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SE:/github/p2p-videocall -BE:/github/p2p-videocall/build --check-stamp-file E:/github/p2p-videocall/build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

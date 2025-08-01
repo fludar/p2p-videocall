@@ -1,0 +1,10 @@
+^E:\GITHUB\P2P-VIDEOCALL\BUILD\CMAKEFILES\206517BC20A4CD42140052E5666CE5A0\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SE:/github/p2p-videocall -BE:/github/p2p-videocall/build --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file E:/github/p2p-videocall/build/P2PVideoCall.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
