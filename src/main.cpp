@@ -3,6 +3,24 @@
 #include <vector>
 #include <deque>
 
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#pragma comment(lib, "ws2_32.lib")
+#else
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <unistd.h>
+#endif
+
+void fnSendFrame(int nSock, const std::vector<uchar>& vecFrameData, const sockaddr_in& saTargetAddr) {
+    if (nSock < 0) return;
+
+    sendto(nSock, reinterpret_cast<const char*>(vecFrameData.data()), vecFrameData.size(), 0,
+           reinterpret_cast<const sockaddr*>(&saTargetAddr), sizeof(saTargetAddr));
+}
+
 int main()
 {
     std::cout << "OpenCV version: " << cv::getVersionString() << std::endl;
