@@ -2,6 +2,11 @@
 #include <iostream>
 #include <vector>
 #include <deque>
+#include <thread>
+#include <chrono>
+#include <string>
+#include <mutex>
+#include <atomic>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -13,6 +18,10 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #endif
+
+std::mutex g_frameMutex;
+std::deque<cv::Mat> g_frameQueue;
+std::atomic<bool> g_bRunning(true);
 
 void fnSendFrame(int nSock, const std::vector<uchar>& vecFrameData, const sockaddr_in& saTargetAddr) {
     if (nSock < 0) return;
