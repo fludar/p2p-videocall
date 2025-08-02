@@ -47,7 +47,6 @@ void fnReceiveFrame(int nPort) {
     saLocalAddr.sin_port = htons(nPort);
     saLocalAddr.sin_addr.s_addr = INADDR_ANY;
 
-    // Try to enable address reuse to avoid "address already in use" errors
     int opt = 1;
     setsockopt(nSock, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&opt), sizeof(opt));
 
@@ -65,13 +64,12 @@ void fnReceiveFrame(int nPort) {
         return;
     }
 
-    // Set a timeout so the socket doesn't block forever
     struct timeval timeout;
     timeout.tv_sec = 0;
     timeout.tv_usec = 100000;  // 100ms timeout
     setsockopt(nSock, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout));
 
-    // INCREASED buffer size to 1MB (from 100KB)
+
     const size_t MAX_BUFFER_SIZE = 1000000; // 1MB
     std::vector<uchar> vecBuffer(MAX_BUFFER_SIZE);
     sockaddr_in saSenderAddr;
@@ -80,10 +78,8 @@ void fnReceiveFrame(int nPort) {
     std::cout << "Receiver thread started. Listening on port " << nPort << std::endl;
 
     while (g_bRunning) {
-        // Add a small sleep to prevent tight loop CPU usage
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
         
-        // Reset buffer size before receiving to ensure it's large enough
         if (vecBuffer.size() != MAX_BUFFER_SIZE) {
             vecBuffer.resize(MAX_BUFFER_SIZE);
         }
@@ -93,31 +89,26 @@ void fnReceiveFrame(int nPort) {
 
         if (nReceivedBytes > 0) {
             try {
-                // SAFETY CHECK: Ensure we have a valid data size
                 if (nReceivedBytes <= 0 || nReceivedBytes > static_cast<int>(MAX_BUFFER_SIZE)) {
                     std::cerr << "Invalid data size received: " << nReceivedBytes << " bytes" << std::endl;
                     continue;
                 }
                 
-                // VALIDATE: Check if data has JPEG header (0xFF 0xD8)
                 if (nReceivedBytes < 2 || vecBuffer[0] != 0xFF || vecBuffer[1] != 0xD8) {
-                    // Not a valid JPEG - skip processing
                     std::cerr << "Invalid data received (" << nReceivedBytes << " bytes)" << std::endl;
                     continue;
                 }
                 
-                // Now safe to resize
                 vecBuffer.resize(nReceivedBytes);
                 cv::Mat receivedFrame = cv::imdecode(vecBuffer, cv::IMREAD_COLOR);
 
                 if (!receivedFrame.empty()) {
-                    // --- DEEP COPY THE FRAME ---
                     cv::Mat copiedFrame;
                     receivedFrame.copyTo(copiedFrame);
 
                     std::lock_guard<std::mutex> lock(g_frameMutex);
                     g_frameQueue.push_back(copiedFrame);
-                    // Limit queue size
+
                     if (g_frameQueue.size() > 5) {
                         g_frameQueue.pop_front();
                     }
@@ -126,15 +117,12 @@ void fnReceiveFrame(int nPort) {
                 }
             } catch (const cv::Exception& e) {
                 std::cerr << "OpenCV exception in receiver: " << e.what() << std::endl;
-                // IMPORTANT: Reset buffer size to max after exception
                 vecBuffer.resize(MAX_BUFFER_SIZE);
             } catch (const std::exception& e) {
                 std::cerr << "Standard exception in receiver: " << e.what() << std::endl;
-                // IMPORTANT: Reset buffer size to max after exception
                 vecBuffer.resize(MAX_BUFFER_SIZE);
             } catch (...) {
                 std::cerr << "Error processing received frame data." << std::endl;
-                // IMPORTANT: Reset buffer size to max after exception
                 vecBuffer.resize(MAX_BUFFER_SIZE);
             }
         }
