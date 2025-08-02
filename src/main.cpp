@@ -30,6 +30,125 @@ void fnSendFrame(int nSock, const std::vector<uchar>& vecFrameData, const sockad
            reinterpret_cast<const sockaddr*>(&saTargetAddr), sizeof(saTargetAddr));
 }
 
+void fnReceiveFrame(int nPort) {
+    int nSock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (nSock < 0) {
+        #ifdef _WIN32
+        std::cerr << "Error creating receive socket. WSA Error: " << WSAGetLastError() << std::endl;
+        #else
+        std::cerr << "Error creating receive socket." << std::endl;
+        #endif
+        return;
+    }
+
+    sockaddr_in saLocalAddr;
+    memset(&saLocalAddr, 0, sizeof(saLocalAddr));
+    saLocalAddr.sin_family = AF_INET;
+    saLocalAddr.sin_port = htons(nPort);
+    saLocalAddr.sin_addr.s_addr = INADDR_ANY;
+
+    // Try to enable address reuse to avoid "address already in use" errors
+    int opt = 1;
+    setsockopt(nSock, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&opt), sizeof(opt));
+
+    if (bind(nSock, reinterpret_cast<sockaddr*>(&saLocalAddr), sizeof(saLocalAddr)) < 0) {
+        #ifdef _WIN32
+        std::cerr << "Error binding socket. WSA Error: " << WSAGetLastError() << std::endl;
+        #else
+        std::cerr << "Error binding socket." << std::endl;
+        #endif
+        #ifdef _WIN32
+        closesocket(nSock);
+        #else
+        close(nSock);
+        #endif
+        return;
+    }
+
+    // Set a timeout so the socket doesn't block forever
+    struct timeval timeout;
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 100000;  // 100ms timeout
+    setsockopt(nSock, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout));
+
+    // INCREASED buffer size to 1MB (from 100KB)
+    const size_t MAX_BUFFER_SIZE = 1000000; // 1MB
+    std::vector<uchar> vecBuffer(MAX_BUFFER_SIZE);
+    sockaddr_in saSenderAddr;
+    socklen_t nSenderAddrLen = sizeof(saSenderAddr);
+
+    std::cout << "Receiver thread started. Listening on port " << nPort << std::endl;
+
+    while (g_bRunning) {
+        // Add a small sleep to prevent tight loop CPU usage
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        
+        // Reset buffer size before receiving to ensure it's large enough
+        if (vecBuffer.size() != MAX_BUFFER_SIZE) {
+            vecBuffer.resize(MAX_BUFFER_SIZE);
+        }
+        
+        int nReceivedBytes = recvfrom(nSock, reinterpret_cast<char*>(vecBuffer.data()), vecBuffer.size(), 0,
+                                          reinterpret_cast<sockaddr*>(&saSenderAddr), &nSenderAddrLen);
+
+        if (nReceivedBytes > 0) {
+            try {
+                // SAFETY CHECK: Ensure we have a valid data size
+                if (nReceivedBytes <= 0 || nReceivedBytes > static_cast<int>(MAX_BUFFER_SIZE)) {
+                    std::cerr << "Invalid data size received: " << nReceivedBytes << " bytes" << std::endl;
+                    continue;
+                }
+                
+                // VALIDATE: Check if data has JPEG header (0xFF 0xD8)
+                if (nReceivedBytes < 2 || vecBuffer[0] != 0xFF || vecBuffer[1] != 0xD8) {
+                    // Not a valid JPEG - skip processing
+                    std::cerr << "Invalid data received (" << nReceivedBytes << " bytes)" << std::endl;
+                    continue;
+                }
+                
+                // Now safe to resize
+                vecBuffer.resize(nReceivedBytes);
+                cv::Mat receivedFrame = cv::imdecode(vecBuffer, cv::IMREAD_COLOR);
+
+                if (!receivedFrame.empty()) {
+                    // --- DEEP COPY THE FRAME ---
+                    cv::Mat copiedFrame;
+                    receivedFrame.copyTo(copiedFrame);
+
+                    std::lock_guard<std::mutex> lock(g_frameMutex);
+                    g_frameQueue.push_back(copiedFrame);
+                    // Limit queue size
+                    if (g_frameQueue.size() > 5) {
+                        g_frameQueue.pop_front();
+                    }
+                } else {
+                    std::cerr << "Received JPEG header but couldn't decode image" << std::endl;
+                }
+            } catch (const cv::Exception& e) {
+                std::cerr << "OpenCV exception in receiver: " << e.what() << std::endl;
+                // IMPORTANT: Reset buffer size to max after exception
+                vecBuffer.resize(MAX_BUFFER_SIZE);
+            } catch (const std::exception& e) {
+                std::cerr << "Standard exception in receiver: " << e.what() << std::endl;
+                // IMPORTANT: Reset buffer size to max after exception
+                vecBuffer.resize(MAX_BUFFER_SIZE);
+            } catch (...) {
+                std::cerr << "Error processing received frame data." << std::endl;
+                // IMPORTANT: Reset buffer size to max after exception
+                vecBuffer.resize(MAX_BUFFER_SIZE);
+            }
+        }
+    }
+
+    std::cout << "Receiver thread shutting down." << std::endl;
+    #ifdef _WIN32
+    closesocket(nSock);
+    #else
+    close(nSock);
+    #endif
+}
+
+
 int main()
 {
     std::cout << "OpenCV version: " << cv::getVersionString() << std::endl;
