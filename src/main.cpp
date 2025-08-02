@@ -14,6 +14,8 @@ int main()
     double dFPS = 0.0;
     
     std::vector<uchar> vecCompressedFrame;
+    std::deque<std::vector<uchar>> stkFrameBuffer;
+    int nStackSize = 10;
 
     if (!vcCap.isOpened()) {
         std::cerr << "Error: Could not open camera." << std::endl;
@@ -43,6 +45,10 @@ int main()
 
             int64 i64CompressionStartTime = cv::getTickCount();
             cv::imencode(".jpg", matFrame, vecCompressedFrame, std::vector<int>{cv::IMWRITE_JPEG_QUALITY, 90});
+            stkFrameBuffer.push_back(vecCompressedFrame);
+            if (stkFrameBuffer.size() > nStackSize) {
+                stkFrameBuffer.pop_front();
+            }
             int64 i64CompressionEndTime = cv::getTickCount();
 
             size_t uCompressedSize = vecCompressedFrame.size();
@@ -52,12 +58,20 @@ int main()
             iFrameCount++;
 
             if(iFrameCount % 30 == 0) {
+            
             double dElapsed = (i64CurrentTime - i64StartTime) / cv::getTickFrequency();
             dFPS = iFrameCount / dElapsed;
+            
+            size_t uTotalBufferSize = 0;
+            for (const auto& frame : stkFrameBuffer) {
+                uTotalBufferSize += frame.size();
+            }
+
             std::cout << "FPS: " << dFPS << std::endl;
             std::cout << "Original size: " << uOriginalSize / 1024 << " KB" << std::endl;
             std::cout << "Compressed size: " << uCompressedSize / 1024 << " KB" << std::endl;
             std::cout << "Compression time: " << dCompressionTime << " seconds" << std::endl;
+            std::cout << "Total buffer size: " << uTotalBufferSize / 1024 << " KB" << std::endl;
             }
             
             if (matFrame.empty()) {
