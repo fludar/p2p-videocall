@@ -197,6 +197,10 @@ int main()
     cv::VideoCapture vcCap(0); 
     if (!vcCap.isOpened()) {
         std::cerr << "Error: Could not open camera." << std::endl;
+        #ifdef _WIN32
+        closesocket(nSendSock);
+        WSACleanup();
+        #endif
         return -1;
     }
 
