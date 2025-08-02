@@ -1,47 +1,63 @@
-#include <iostream>
 #include <opencv2/opencv.hpp>
+#include <iostream>
+#include <vector>
+#include <deque>
 
 int main()
 {
     std::cout << "OpenCV version: " << cv::getVersionString() << std::endl;
 
-    cv::VideoCapture vcCap(0); // Open the default camera
+    cv::VideoCapture vcCap(0); 
 
     int64 i64StartTime = cv::getTickCount(); 
     int iFrameCount = 0;
     double dFPS = 0.0;
     
+    std::vector<uchar> vecCompressedFrame;
+
     if (!vcCap.isOpened()) {
         std::cerr << "Error: Could not open camera." << std::endl;
         return -1;
     }
+
     
-    // Set camera properties
-    vcCap.set(cv::CAP_PROP_FRAME_WIDTH, 640); // Set width
-    vcCap.set(cv::CAP_PROP_FRAME_HEIGHT, 480); // Set height
-    vcCap.set(cv::CAP_PROP_FPS, 30); // Set frames per second
+    vcCap.set(cv::CAP_PROP_FRAME_WIDTH, 640); 
+    vcCap.set(cv::CAP_PROP_FRAME_HEIGHT, 480); 
+    vcCap.set(cv::CAP_PROP_FPS, 30); 
     
     std::cout << "Camera opened successfully." << std::endl;
 
     cv::Mat matFrame;
     bool bRunning = true;
     
-    // Create window
     cv::namedWindow("Camera Feed", cv::WINDOW_AUTOSIZE);
     
     while(true)
     {
         if(bRunning){
             int64 i64CurrentTime = cv::getTickCount();
-            // Capture frame-by-frame
+
             vcCap >> matFrame;
 
-            iFrameCount++;
+            size_t uOriginalSize = matFrame.total() * matFrame.elemSize();
+
+            int64 i64CompressionStartTime = cv::getTickCount();
+            cv::imencode(".jpg", matFrame, vecCompressedFrame, std::vector<int>{cv::IMWRITE_JPEG_QUALITY, 90});
+            int64 i64CompressionEndTime = cv::getTickCount();
+
+            size_t uCompressedSize = vecCompressedFrame.size();
             
+            double dCompressionTime = (i64CompressionEndTime - i64CompressionStartTime) / cv::getTickFrequency();
+           
+            iFrameCount++;
+
             if(iFrameCount % 30 == 0) {
-            double elapsed = (i64CurrentTime - i64StartTime) / cv::getTickFrequency();
-            dFPS = iFrameCount / elapsed;
+            double dElapsed = (i64CurrentTime - i64StartTime) / cv::getTickFrequency();
+            dFPS = iFrameCount / dElapsed;
             std::cout << "FPS: " << dFPS << std::endl;
+            std::cout << "Original size: " << uOriginalSize / 1024 << " KB" << std::endl;
+            std::cout << "Compressed size: " << uCompressedSize / 1024 << " KB" << std::endl;
+            std::cout << "Compression time: " << dCompressionTime << " seconds" << std::endl;
             }
             
             if (matFrame.empty()) {
@@ -49,10 +65,8 @@ int main()
                 break;
             }
 
-            // Display the resulting frame
             cv::imshow("Camera Feed", matFrame);
 
-            // Break the loop on 'q' key press
             char key = cv::waitKey(1) & 0xFF;
             if (key == 'q') {
                 bRunning = false;
@@ -64,7 +78,7 @@ int main()
     }
 
     
-    vcCap.release(); // Release the camera
-    cv::destroyAllWindows(); // Close all OpenCV windows
+    vcCap.release();
+    cv::destroyAllWindows(); 
     return 0;
 }
