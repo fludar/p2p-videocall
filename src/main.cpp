@@ -139,9 +139,66 @@ void fnReceiveFrame(int nPort) {
 
 int main()
 {
-    std::cout << "OpenCV version: " << cv::getVersionString() << std::endl;
+    #ifdef _WIN32
+    WSADATA wsaData;
+    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+        std::cerr << "WSAStartup failed!" << std::endl;
+        return -1;
+    }
+    #endif
+
+    std::string strTargetIP = "";
+    std::cout << "Enter target IP address: ";
+    std::cin >> strTargetIP;
+
+    if (strTargetIP.empty()) {
+        std::cerr << "No IP address entered!" << std::endl;
+        #ifdef _WIN32
+        WSACleanup();
+        #endif
+        return -1;
+    }
+
+    int nSendSock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (nSendSock < 0) {
+        std::cerr << "Error creating send socket." << std::endl;
+        #ifdef _WIN32
+        WSACleanup();
+        #endif
+        return -1;
+    }
+
+    sockaddr_in saTargetAddr;
+    memset(&saTargetAddr, 0, sizeof(saTargetAddr));
+    saTargetAddr.sin_family = AF_INET;
+    saTargetAddr.sin_port = htons(8080);
+
+    int pton_ret = inet_pton(AF_INET, strTargetIP.c_str(), &saTargetAddr.sin_addr);
+    if (pton_ret <= 0) {
+        if (pton_ret == 0) {
+            std::cerr << "Error: Invalid IP address format provided." << std::endl;
+        } else {
+            #ifdef _WIN32
+            std::cerr << "Error calling inet_pton. WSA Error: " << WSAGetLastError() << std::endl;
+            #else
+            std::cerr << "Error calling inet_pton." << std::endl;
+            #endif
+        }
+
+        #ifdef _WIN32
+        closesocket(nSendSock);
+        WSACleanup();
+        #else
+        close(nSendSock);
+        #endif
+        return -1;
+    }
 
     cv::VideoCapture vcCap(0); 
+    if (!vcCap.isOpened()) {
+        std::cerr << "Error: Could not open camera." << std::endl;
+        return -1;
+    }
 
     int64 i64StartTime = cv::getTickCount(); 
     int iFrameCount = 0;
@@ -151,10 +208,6 @@ int main()
     std::deque<std::vector<uchar>> stkFrameBuffer;
     int nStackSize = 10;
 
-    if (!vcCap.isOpened()) {
-        std::cerr << "Error: Could not open camera." << std::endl;
-        return -1;
-    }
 
     
     vcCap.set(cv::CAP_PROP_FRAME_WIDTH, 640); 
