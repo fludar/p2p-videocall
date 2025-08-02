@@ -9,9 +9,13 @@ find_package(PkgConfig REQUIRED)
 find_package(OpenCV REQUIRED)
 
 add_executable(p2p-video-call
-    src/main.cpp
+src/main.cpp
 )
 
 # Link OpenCV libraries
-target_link_libraries(p2p-video-call ${OpenCV_LIBRARIES})
+if(WIN32)
+    target_link_libraries(p2p-video-call ${OpenCV_LIBRARIES} ws2_32)
+else()
+    target_link_libraries(p2p-video-call ${OpenCV_LIBRARIES})
+endif()
 target_include_directories(p2p-video-call PRIVATE ${OpenCV_INCLUDE_DIRS})
