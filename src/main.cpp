@@ -203,87 +203,82 @@ int main()
         #endif
         return -1;
     }
-
-    int64 i64StartTime = cv::getTickCount(); 
-    int iFrameCount = 0;
-    double dFPS = 0.0;
-    
-    std::vector<uchar> vecCompressedFrame;
-    std::deque<std::vector<uchar>> stkFrameBuffer;
-    int nStackSize = 10;
-
-
-    
     vcCap.set(cv::CAP_PROP_FRAME_WIDTH, 640); 
     vcCap.set(cv::CAP_PROP_FRAME_HEIGHT, 480); 
     vcCap.set(cv::CAP_PROP_FPS, 30); 
-    
     std::cout << "Camera opened successfully." << std::endl;
 
-    cv::Mat matFrame;
-    bool bRunning = true;
+    cv::namedWindow("P2P Video Call - Received", cv::WINDOW_AUTOSIZE);
+    cv::Mat matFrame, matReceivedFrame;
+    cv::Mat matBlackFrame = cv::Mat::zeros(480, 640, CV_8UC3);
+    cv::imshow("P2P Video Call - Received", matBlackFrame);
+    cv::waitKey(1); 
     
-    cv::namedWindow("Camera Feed", cv::WINDOW_AUTOSIZE);
+    std::thread receiverThread(fnReceiveFrame, 8080);
+    receiverThread.detach();
     
-    while(true)
-    {
-        if(bRunning){
-            int64 i64CurrentTime = cv::getTickCount();
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    
+    std::vector<uchar> vecCompressedFrame;
 
+    try {
+
+        while (g_bRunning) {
             vcCap >> matFrame;
-
-            size_t uOriginalSize = matFrame.total() * matFrame.elemSize();
-
-            int64 i64CompressionStartTime = cv::getTickCount();
-            cv::imencode(".jpg", matFrame, vecCompressedFrame, std::vector<int>{cv::IMWRITE_JPEG_QUALITY, 90});
-            stkFrameBuffer.push_back(vecCompressedFrame);
-            if (stkFrameBuffer.size() > nStackSize) {
-                stkFrameBuffer.pop_front();
-            }
-            int64 i64CompressionEndTime = cv::getTickCount();
-
-            size_t uCompressedSize = vecCompressedFrame.size();
-            
-            double dCompressionTime = (i64CompressionEndTime - i64CompressionStartTime) / cv::getTickFrequency();
-           
-            iFrameCount++;
-
-            if(iFrameCount % 30 == 0) {
-            
-            double dElapsed = (i64CurrentTime - i64StartTime) / cv::getTickFrequency();
-            dFPS = iFrameCount / dElapsed;
-            
-            size_t uTotalBufferSize = 0;
-            for (const auto& frame : stkFrameBuffer) {
-                uTotalBufferSize += frame.size();
-            }
-
-            std::cout << "FPS: " << dFPS << std::endl;
-            std::cout << "Original size: " << uOriginalSize / 1024 << " KB" << std::endl;
-            std::cout << "Compressed size: " << uCompressedSize / 1024 << " KB" << std::endl;
-            std::cout << "Compression time: " << dCompressionTime << " seconds" << std::endl;
-            std::cout << "Total buffer size: " << uTotalBufferSize / 1024 << " KB" << std::endl;
-            }
-            
             if (matFrame.empty()) {
                 std::cerr << "Error: Could not capture frame." << std::endl;
                 break;
             }
 
-            cv::imshow("Camera Feed", matFrame);
-
-            char key = cv::waitKey(1) & 0xFF;
-            if (key == 'q') {
-                bRunning = false;
+            cv::imencode(".jpg", matFrame, vecCompressedFrame, {cv::IMWRITE_JPEG_QUALITY, 80});
+            fnSendFrame(nSendSock, vecCompressedFrame, saTargetAddr);
+            {
+                std::lock_guard<std::mutex> lock(g_frameMutex);
+                if (!g_frameQueue.empty()) {
+                    matReceivedFrame = g_frameQueue.front();
+                    g_frameQueue.pop_front();
+                }
             }
-        } else {
-            std::cout << "Exiting camera feed." << std::endl;
-            break;
+
+            if (!matReceivedFrame.empty() && matReceivedFrame.data != NULL) {
+                cv::imshow("P2P Video Call - Received", matReceivedFrame);
+            } else {
+                cv::imshow("P2P Video Call - Received", matBlackFrame);
+            }
+            if ((cv::waitKey(30) & 0xFF) == 'q') {
+                g_bRunning = false;
+            }
         }
+    } catch (const cv::Exception& e) {
+        std::cerr << "FATAL: OpenCV exception caught: " << e.what() << std::endl;
+        g_bRunning = false;
+    } catch (const std::exception& e) {
+        std::cerr << "FATAL: Standard exception caught: " << e.what() << std::endl;
+        g_bRunning = false;
+    } catch (...) {
+        std::cerr << "FATAL: Unknown exception caught." << std::endl;
+        g_bRunning = false;
     }
 
+    std::cout << "Main loop shutting down." << std::endl;
+    g_bRunning = false;
     
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    
+    #ifdef _WIN32
+    closesocket(nSendSock); 
+    #else
+    close(nSendSock);
+    #endif
+
     vcCap.release();
-    cv::destroyAllWindows(); 
+    cv::destroyAllWindows();
+    
+    #ifdef _WIN32
+    WSACleanup();
+    #endif
+
+    std::cout << "Application finished." << std::endl;
     return 0;
+
 }
