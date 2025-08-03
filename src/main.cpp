@@ -23,7 +23,7 @@
 
 #define MAX_BUFFER_SIZE 1000000 
 #define SAMPLE_RATE 48000
-#define FRAMES_PER_BUFFER 480 
+#define FRAMES_PER_BUFFER 960
 #define CHANNELS 1 
 
 
@@ -107,16 +107,23 @@ static int AudioOutputCallback(const void *inputBuffer, void *outputBuffer,
     float *out = (float*)outputBuffer;
 
     std::lock_guard<std::mutex> lock(g_audioMutex);
-    
     if (audio->audioBuffer.empty()) {
         memset(out, 0, framesPerBuffer * CHANNELS * sizeof(float));
         return paContinue;
     }
 
-    memcpy(out, audio->audioBuffer.data(), 
-           (((framesPerBuffer * 1 * sizeof(float)) < (audio->audioBuffer.size() * sizeof(float))) ? (framesPerBuffer * 1 * sizeof(float)) : (audio->audioBuffer.size() * sizeof(float))));
-        // std::min not working just used vscode "expands to" feature to get the min value
-    audio->audioBuffer.clear();
+    size_t samplesToCopy = (((framesPerBuffer * 1) < ((unsigned long)audio->audioBuffer.size())) ? (framesPerBuffer * 1) : ((unsigned long)audio->audioBuffer.size()));
+    //use vscodes "expands to" feature to see the full expression because std::min doesnt work for me for some reason
+
+    memcpy(out, audio->audioBuffer.data(), samplesToCopy * sizeof(float));
+
+    if (samplesToCopy < framesPerBuffer * CHANNELS) {
+        memset(out + samplesToCopy, 0, 
+              (framesPerBuffer * CHANNELS - samplesToCopy) * sizeof(float));
+    }
+
+    audio->audioBuffer.erase(audio->audioBuffer.begin(), 
+                           audio->audioBuffer.begin() + samplesToCopy);
     
     return paContinue;
 }
@@ -167,7 +174,15 @@ void ReceiveAudio(AudioState* audio){
 
             if (decodedSamples > 0) {
                 std::lock_guard<std::mutex> lock(g_audioMutex);
-                audio->audioBuffer = decoded;
+                for (int i = 0; i < decodedSamples * CHANNELS; i++) {
+                    audio->audioBuffer.push_back(decoded[i]);
+                }
+
+                const size_t MAX_BUFFER = FRAMES_PER_BUFFER * CHANNELS * 5;
+                if (audio->audioBuffer.size() > MAX_BUFFER) {
+                    audio->audioBuffer.erase(audio->audioBuffer.begin(), 
+                    audio->audioBuffer.begin() + (audio->audioBuffer.size() - MAX_BUFFER));
+                }
             }
             std::cout << "Audio Play: " << audio->audioBuffer.size() << " samples" << std::endl;
         }
