@@ -18,6 +18,11 @@
 #include <unistd.h>
 #endif
 
+#include <portaudio.h>
+#include <opus/opus.h>
+
+#define MAX_BUFFER_SIZE 1000000 // 1MB
+
 std::mutex g_frameMutex;
 std::deque<cv::Mat> g_frameQueue;
 std::atomic<bool> g_bRunning(true);
@@ -69,7 +74,6 @@ void ReceiveFrame(int nPort) {
     setsockopt(nSock, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout));
 
 
-    const size_t MAX_BUFFER_SIZE = 1000000; // 1MB
     std::vector<uchar> vecBuffer(MAX_BUFFER_SIZE);
     sockaddr_in saSenderAddr;
     socklen_t nSenderAddrLen = sizeof(saSenderAddr);

@@ -4,15 +4,18 @@ project(P2PVideoCall)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Find OpenCV package
 find_package(PkgConfig REQUIRED)
 find_package(OpenCV REQUIRED)
+find_package(PortAudio REQUIRED)
+find_package(Opus REQUIRED)
 
 add_executable(p2p-video-call
 src/main.cpp
 )
-
-# Link OpenCV libraries
+target_link_libraries(p2p-video-call
+    ${PORTAUDIO_LIBRARIES}
+    ${OPUS_LIBRARIES}
+)
 if(WIN32)
     target_link_libraries(p2p-video-call ${OpenCV_LIBRARIES} ws2_32)
 else()
