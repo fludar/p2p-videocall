@@ -26,6 +26,8 @@
 #define FRAMES_PER_BUFFER 480 
 #define CHANNELS 1 
 
+
+std::mutex g_audioMutex;
 std::mutex g_frameMutex;
 std::deque<cv::Mat> g_frameQueue;
 std::atomic<bool> g_bRunning(true);
@@ -73,13 +75,17 @@ static int AudioInputCallback(const void *inputBuffer, void *outputBuffer,
 
     if (encodedBytes > 0) {
         try{
-        std::vector<uchar> vecPacket;
-        vecPacket.reserve(encodedBytes + 2);
-        vecPacket.push_back(0xAA); //Audio packet marker
-        vecPacket.push_back(0xBB); 
+            std::vector<uchar> vecPacket;
+            vecPacket.reserve(encodedBytes + 2);
+            vecPacket.push_back(0xAA); //Audio packet marker
+            vecPacket.push_back(0xBB); 
+            
+            vecPacket.insert(vecPacket.end(), audio->encodedBuffer.begin(), audio->encodedBuffer.begin() + encodedBytes);
+            
+            
 
-        vecPacket.insert(vecPacket.end(), audio->encodedBuffer.begin(), audio->encodedBuffer.begin() + encodedBytes);
         if(audio->nSock > 0){
+            std::cout << "Audio TX: " << encodedBytes << " bytes" << std::endl; // to debug
             sendto(audio->nSock, reinterpret_cast<const char*>(vecPacket.data()), vecPacket.size(), 0,
                reinterpret_cast<const sockaddr*>(&audio->saTargetAddr), sizeof(audio->saTargetAddr));
             }
@@ -92,7 +98,87 @@ static int AudioInputCallback(const void *inputBuffer, void *outputBuffer,
     return paContinue;
 }
 
+static int AudioOutputCallback(const void *inputBuffer, void *outputBuffer,
+                            unsigned long framesPerBuffer,
+                            const PaStreamCallbackTimeInfo* timeInfo,
+                            PaStreamCallbackFlags statusFlags,
+                            void *userData) {
+    AudioState *audio = (AudioState*)userData;
+    float *out = (float*)outputBuffer;
 
+    std::lock_guard<std::mutex> lock(g_audioMutex);
+    
+    if (audio->audioBuffer.empty()) {
+        memset(out, 0, framesPerBuffer * CHANNELS * sizeof(float));
+        return paContinue;
+    }
+
+    memcpy(out, audio->audioBuffer.data(), 
+           (((framesPerBuffer * 1 * sizeof(float)) < (audio->audioBuffer.size() * sizeof(float))) ? (framesPerBuffer * 1 * sizeof(float)) : (audio->audioBuffer.size() * sizeof(float))));
+        // std::min not working just used vscode "expands to" feature to get the min value
+    audio->audioBuffer.clear();
+    
+    return paContinue;
+}
+
+void ReceiveAudio(AudioState* audio){
+    std::vector<uchar> vecBuffer(MAX_BUFFER_SIZE);
+    sockaddr_in saSenderAddr;
+    socklen_t nSenderAddrLen = sizeof(saSenderAddr);
+
+    int audioSocket = socket(AF_INET, SOCK_DGRAM, 0);
+    if (audioSocket < 0) {
+        std::cerr << "Failed to create audio receive socket" << std::endl;
+        return;
+    }
+
+    // Bind to a different port (e.g., 8081 for audio)
+    sockaddr_in audioAddr;
+    memset(&audioAddr, 0, sizeof(audioAddr));
+    audioAddr.sin_family = AF_INET;
+    audioAddr.sin_port = htons(8081);  // Different port than video
+    audioAddr.sin_addr.s_addr = INADDR_ANY;
+
+    if (bind(audioSocket, reinterpret_cast<sockaddr*>(&audioAddr), sizeof(audioAddr)) < 0) {
+        std::cerr << "Failed to bind audio socket" << std::endl;
+        return;
+    }
+
+    struct timeval timeout;
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 100000;  // 100ms timeout
+    setsockopt(audioSocket, SOL_SOCKET, SO_RCVTIMEO, 
+               reinterpret_cast<const char*>(&timeout), sizeof(timeout));
+    
+    while (g_bRunning) {
+        int nReceivedBytes = recvfrom(audioSocket, reinterpret_cast<char*>(vecBuffer.data()), vecBuffer.size(), 0,
+                                      reinterpret_cast<sockaddr*>(&saSenderAddr), &nSenderAddrLen);
+        if (nReceivedBytes > 2 && vecBuffer[0] == 0xAA && vecBuffer[1] == 0xBB) {
+            std::cout << "Audio RX: " << nReceivedBytes << " bytes" << std::endl;
+            std::vector<float> decoded(FRAMES_PER_BUFFER * CHANNELS);
+            int decodedSamples = opus_decode_float(
+                audio->decoder,
+                vecBuffer.data() + 2, 
+                nReceivedBytes - 2, 
+                decoded.data(), 
+                FRAMES_PER_BUFFER, 
+                0
+            );
+
+            if (decodedSamples > 0) {
+                std::lock_guard<std::mutex> lock(g_audioMutex);
+                audio->audioBuffer = decoded;
+            }
+            std::cout << "Audio Play: " << audio->audioBuffer.size() << " samples" << std::endl;
+        }
+    }
+
+    #ifdef _WIN32
+    closesocket(audioSocket);
+    #else
+    close(audioSocket);
+    #endif
+}
 
 void SendFrame(int nSock, const std::vector<uchar>& vecFrameData, const sockaddr_in& saTargetAddr) {
     if (nSock < 0) return;
@@ -296,7 +382,7 @@ int main()
     memset(&saTargetAddr, 0, sizeof(saTargetAddr));
     saTargetAddr.sin_family = AF_INET;
     saTargetAddr.sin_port = htons(8080);
-
+ 
     if (err != paNoError) {
         std::cerr << "Failed to open PortAudio input stream: " << Pa_GetErrorText(err) << std::endl;
         opus_encoder_destroy(audioState.encoder);
@@ -311,7 +397,6 @@ int main()
         return -1;
     }
 
-    // Start the audio stream
     err = Pa_StartStream(audioState.inputStream);
     if (err != paNoError) {
         std::cerr << "Failed to start PortAudio stream: " << Pa_GetErrorText(err) << std::endl;
@@ -328,10 +413,50 @@ int main()
         return -1;
     }
 
-    // Store socket in AudioState for use in callback
-    audioState.nSock = nSendSock;
-    audioState.saTargetAddr = saTargetAddr;
+    
 
+    err = Pa_OpenDefaultStream(
+    &audioState.outputStream,
+    0,                 
+    CHANNELS,          
+    paFloat32,         
+    SAMPLE_RATE,       
+    FRAMES_PER_BUFFER, 
+    AudioOutputCallback,
+    &audioState
+    );  
+
+    if (err != paNoError) {
+        std::cerr << "Failed to open PortAudio output stream: " << Pa_GetErrorText(err) << std::endl;
+        Pa_CloseStream(audioState.inputStream);
+        opus_encoder_destroy(audioState.encoder);
+        opus_decoder_destroy(audioState.decoder);
+        Pa_Terminate();
+        #ifdef _WIN32
+        closesocket(nSendSock);
+        WSACleanup();
+        #else
+        close(nSock);
+        #endif
+        return -1;
+    }
+
+    err = Pa_StartStream(audioState.outputStream);
+    if (err != paNoError) {
+        std::cerr << "Failed to start PortAudio output stream: " << Pa_GetErrorText(err) << std::endl;
+        Pa_CloseStream(audioState.inputStream);
+        Pa_CloseStream(audioState.outputStream);
+        opus_encoder_destroy(audioState.encoder);
+        opus_decoder_destroy(audioState.decoder);
+        Pa_Terminate();
+        #ifdef _WIN32
+        closesocket(nSendSock);
+        WSACleanup();
+        #else
+        close(nSock);
+        #endif
+        return -1;
+    }
     int pton_ret = inet_pton(AF_INET, strTargetIP.c_str(), &saTargetAddr.sin_addr);
     if (pton_ret <= 0) {
         if (pton_ret == 0) {
@@ -352,6 +477,11 @@ int main()
         #endif
         return -1;
     }
+
+    audioState.saTargetAddr = saTargetAddr;
+    audioState.saTargetAddr.sin_addr = saTargetAddr.sin_addr;
+    audioState.saTargetAddr.sin_port = htons(8081);  
+    audioState.nSock = nSendSock;
 
     cv::VideoCapture vcCap(0); 
     if (!vcCap.isOpened()) {
@@ -375,7 +505,8 @@ int main()
     
     std::thread receiverThread(ReceiveFrame, 8080);
     receiverThread.detach();
-    
+    std::thread audioReceiverThread(ReceiveAudio, &audioState);
+    audioReceiverThread.detach();
     std::vector<uchar> vecCompressedFrame;
 
     try {
@@ -436,10 +567,11 @@ int main()
     if (audioState.inputStream) {
         Pa_StopStream(audioState.inputStream);
         Pa_CloseStream(audioState.inputStream);
-    }   
-    if (audioState.encoder) opus_encoder_destroy(audioState.encoder);
-    if (audioState.decoder) opus_decoder_destroy(audioState.decoder);
-    Pa_Terminate();
+    }
+    if (audioState.outputStream) {
+        Pa_StopStream(audioState.outputStream);
+        Pa_CloseStream(audioState.outputStream);
+    }
     std::cout << "Application finished." << std::endl;
     return 0;
 
