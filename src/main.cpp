@@ -3,7 +3,6 @@
 #include <vector>
 #include <deque>
 #include <thread>
-#include <chrono>
 #include <string>
 #include <mutex>
 #include <atomic>
@@ -23,14 +22,14 @@ std::mutex g_frameMutex;
 std::deque<cv::Mat> g_frameQueue;
 std::atomic<bool> g_bRunning(true);
 
-void fnSendFrame(int nSock, const std::vector<uchar>& vecFrameData, const sockaddr_in& saTargetAddr) {
+void SendFrame(int nSock, const std::vector<uchar>& vecFrameData, const sockaddr_in& saTargetAddr) {
     if (nSock < 0) return;
 
     sendto(nSock, reinterpret_cast<const char*>(vecFrameData.data()), vecFrameData.size(), 0,
            reinterpret_cast<const sockaddr*>(&saTargetAddr), sizeof(saTargetAddr));
 }
 
-void fnReceiveFrame(int nPort) {
+void ReceiveFrame(int nPort) {
     int nSock = socket(AF_INET, SOCK_DGRAM, 0);
     if (nSock < 0) {
         #ifdef _WIN32
@@ -78,7 +77,6 @@ void fnReceiveFrame(int nPort) {
     std::cout << "Receiver thread started. Listening on port " << nPort << std::endl;
 
     while (g_bRunning) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
         
         if (vecBuffer.size() != MAX_BUFFER_SIZE) {
             vecBuffer.resize(MAX_BUFFER_SIZE);
@@ -214,10 +212,8 @@ int main()
     cv::imshow("P2P Video Call - Received", matBlackFrame);
     cv::waitKey(1); 
     
-    std::thread receiverThread(fnReceiveFrame, 8080);
+    std::thread receiverThread(ReceiveFrame, 8080);
     receiverThread.detach();
-    
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
     
     std::vector<uchar> vecCompressedFrame;
 
@@ -231,7 +227,7 @@ int main()
             }
 
             cv::imencode(".jpg", matFrame, vecCompressedFrame, {cv::IMWRITE_JPEG_QUALITY, 80});
-            fnSendFrame(nSendSock, vecCompressedFrame, saTargetAddr);
+            SendFrame(nSendSock, vecCompressedFrame, saTargetAddr);
             {
                 std::lock_guard<std::mutex> lock(g_frameMutex);
                 if (!g_frameQueue.empty()) {
@@ -263,7 +259,6 @@ int main()
     std::cout << "Main loop shutting down." << std::endl;
     g_bRunning = false;
     
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
     
     #ifdef _WIN32
     closesocket(nSendSock); 
