@@ -21,11 +21,78 @@
 #include <portaudio.h>
 #include <opus/opus.h>
 
-#define MAX_BUFFER_SIZE 1000000 // 1MB
+#define MAX_BUFFER_SIZE 1000000 
+#define SAMPLE_RATE 48000
+#define FRAMES_PER_BUFFER 480 
+#define CHANNELS 1 
 
 std::mutex g_frameMutex;
 std::deque<cv::Mat> g_frameQueue;
 std::atomic<bool> g_bRunning(true);
+
+struct AudioState {
+    OpusEncoder *encoder;
+    OpusDecoder *decoder;
+    PaStream *inputStream;
+    PaStream *outputStream;
+    std::vector<unsigned char> encodedBuffer;
+    std::vector<float> audioBuffer;
+    int nSock;
+    sockaddr_in saTargetAddr;
+};
+
+static int AudioInputCallback(const void *inputBuffer, void *outputBuffer,
+                            unsigned long framesPerBuffer,
+                            const PaStreamCallbackTimeInfo* timeInfo,
+                            PaStreamCallbackFlags statusFlags,
+                            void *userData) {
+    AudioState *audio = (AudioState*)userData;
+    const float *in = (const float*)inputBuffer;
+    
+    if(inputBuffer == nullptr) {
+        return paContinue;
+    }
+    
+    if (!audio->encoder || !audio->encodedBuffer.data()) {
+        std::cerr << "Audio encoder not initialized" << std::endl;
+        return paAbort;
+    }
+
+    opus_int32 encodedBytes = opus_encode_float(
+        audio->encoder,
+        in,
+        FRAMES_PER_BUFFER,
+        audio->encodedBuffer.data(),
+        audio->encodedBuffer.size()
+    );
+    
+    if (encodedBytes < 0) {
+        std::cerr << "Opus encoding error: " << encodedBytes << std::endl;
+        return paContinue;
+    }
+
+    if (encodedBytes > 0) {
+        try{
+        std::vector<uchar> vecPacket;
+        vecPacket.reserve(encodedBytes + 2);
+        vecPacket.push_back(0xAA); //Audio packet marker
+        vecPacket.push_back(0xBB); 
+
+        vecPacket.insert(vecPacket.end(), audio->encodedBuffer.begin(), audio->encodedBuffer.begin() + encodedBytes);
+        if(audio->nSock > 0){
+            sendto(audio->nSock, reinterpret_cast<const char*>(vecPacket.data()), vecPacket.size(), 0,
+               reinterpret_cast<const sockaddr*>(&audio->saTargetAddr), sizeof(audio->saTargetAddr));
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "Error sending audio packet: " << e.what() << std::endl;
+            return paAbort;
+        }
+    }
+    
+    return paContinue;
+}
+
+
 
 void SendFrame(int nSock, const std::vector<uchar>& vecFrameData, const sockaddr_in& saTargetAddr) {
     if (nSock < 0) return;
@@ -149,10 +216,15 @@ int main()
     }
     #endif
 
+    AudioState audioState;
+    audioState.encodedBuffer.resize(MAX_BUFFER_SIZE);
+    audioState.audioBuffer.resize(FRAMES_PER_BUFFER * CHANNELS);
+
+    
     std::string strTargetIP = "";
     std::cout << "Enter target IP address: ";
     std::cin >> strTargetIP;
-
+    
     if (strTargetIP.empty()) {
         std::cerr << "No IP address entered!" << std::endl;
         #ifdef _WIN32
@@ -160,7 +232,7 @@ int main()
         #endif
         return -1;
     }
-
+    
     int nSendSock = socket(AF_INET, SOCK_DGRAM, 0);
     if (nSendSock < 0) {
         std::cerr << "Error creating send socket." << std::endl;
@@ -169,11 +241,96 @@ int main()
         #endif
         return -1;
     }
+    
+    PaError err = Pa_Initialize();
+    if (err != paNoError) {
+        std::cerr << "PortAudio initialization failed: " << Pa_GetErrorText(err) << std::endl;
+        #ifdef _WIN32
+        closesocket(nSendSock);
+        WSACleanup();
+        #else
+        close(nSendSock);
+        #endif
+        return -1;
+    }
+    int opusError;
+    audioState.encoder = opus_encoder_create(SAMPLE_RATE, CHANNELS, OPUS_APPLICATION_VOIP, &opusError);
+    if (opusError != OPUS_OK || !audioState.encoder) {
+        std::cerr << "Failed to create Opus encoder: " << opus_strerror(opusError) << std::endl;
+        Pa_Terminate();
+        #ifdef _WIN32
+        closesocket(nSendSock);
+        WSACleanup();
+        #else
+        close(nSendSock);
+        #endif
+        return -1;
+    }
+
+    audioState.decoder = opus_decoder_create(SAMPLE_RATE, CHANNELS, &opusError);
+    if (opusError != OPUS_OK || !audioState.decoder) {
+        std::cerr << "Failed to create Opus decoder: " << opus_strerror(opusError) << std::endl;
+        opus_encoder_destroy(audioState.encoder);
+        Pa_Terminate();
+        #ifdef _WIN32
+        closesocket(nSendSock);
+        WSACleanup();
+        #else
+        close(nSendSock);
+        #endif
+        return -1;
+    }
+
+    err = Pa_OpenDefaultStream(
+    &audioState.inputStream,
+    CHANNELS,          
+    0,                 
+    paFloat32,         
+    SAMPLE_RATE,       
+    FRAMES_PER_BUFFER, 
+    AudioInputCallback,
+    &audioState        
+    );
 
     sockaddr_in saTargetAddr;
     memset(&saTargetAddr, 0, sizeof(saTargetAddr));
     saTargetAddr.sin_family = AF_INET;
     saTargetAddr.sin_port = htons(8080);
+
+    if (err != paNoError) {
+        std::cerr << "Failed to open PortAudio input stream: " << Pa_GetErrorText(err) << std::endl;
+        opus_encoder_destroy(audioState.encoder);
+        opus_decoder_destroy(audioState.decoder);
+        Pa_Terminate();
+        #ifdef _WIN32
+        closesocket(nSendSock);
+        WSACleanup();
+        #else
+        close(nSock);
+        #endif
+        return -1;
+    }
+
+    // Start the audio stream
+    err = Pa_StartStream(audioState.inputStream);
+    if (err != paNoError) {
+        std::cerr << "Failed to start PortAudio stream: " << Pa_GetErrorText(err) << std::endl;
+        Pa_CloseStream(audioState.inputStream);
+        opus_encoder_destroy(audioState.encoder);
+        opus_decoder_destroy(audioState.decoder);
+        Pa_Terminate();
+        #ifdef _WIN32
+        closesocket(nSendSock);
+        WSACleanup();
+        #else
+        close(nSock);
+        #endif
+        return -1;
+    }
+
+    // Store socket in AudioState for use in callback
+    audioState.nSock = nSendSock;
+    audioState.saTargetAddr = saTargetAddr;
 
     int pton_ret = inet_pton(AF_INET, strTargetIP.c_str(), &saTargetAddr.sin_addr);
     if (pton_ret <= 0) {
@@ -276,7 +433,13 @@ int main()
     #ifdef _WIN32
     WSACleanup();
     #endif
-
+    if (audioState.inputStream) {
+        Pa_StopStream(audioState.inputStream);
+        Pa_CloseStream(audioState.inputStream);
+    }   
+    if (audioState.encoder) opus_encoder_destroy(audioState.encoder);
+    if (audioState.decoder) opus_decoder_destroy(audioState.decoder);
+    Pa_Terminate();
     std::cout << "Application finished." << std::endl;
     return 0;
 
