@@ -85,7 +85,6 @@ static int AudioInputCallback(const void *inputBuffer, void *outputBuffer,
             
 
         if(audio->nSock > 0){
-            std::cout << "Audio TX: " << encodedBytes << " bytes" << std::endl; // to debug
             sendto(audio->nSock, reinterpret_cast<const char*>(vecPacket.data()), vecPacket.size(), 0,
                reinterpret_cast<const sockaddr*>(&audio->saTargetAddr), sizeof(audio->saTargetAddr));
             }
@@ -139,7 +138,6 @@ void ReceiveAudio(AudioState* audio){
         return;
     }
 
-    // Bind to a different port (e.g., 8081 for audio)
     sockaddr_in audioAddr;
     memset(&audioAddr, 0, sizeof(audioAddr));
     audioAddr.sin_family = AF_INET;
@@ -161,7 +159,6 @@ void ReceiveAudio(AudioState* audio){
         int nReceivedBytes = recvfrom(audioSocket, reinterpret_cast<char*>(vecBuffer.data()), vecBuffer.size(), 0,
                                       reinterpret_cast<sockaddr*>(&saSenderAddr), &nSenderAddrLen);
         if (nReceivedBytes > 2 && vecBuffer[0] == 0xAA && vecBuffer[1] == 0xBB) {
-            std::cout << "Audio RX: " << nReceivedBytes << " bytes" << std::endl;
             std::vector<float> decoded(FRAMES_PER_BUFFER * CHANNELS);
             int decodedSamples = opus_decode_float(
                 audio->decoder,
@@ -184,7 +181,6 @@ void ReceiveAudio(AudioState* audio){
                     audio->audioBuffer.begin() + (audio->audioBuffer.size() - MAX_BUFFER));
                 }
             }
-            std::cout << "Audio Play: " << audio->audioBuffer.size() << " samples" << std::endl;
         }
     }
 
