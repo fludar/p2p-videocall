@@ -38,18 +38,16 @@ Currently you need to manually input the peer IP.
 ./p2p-videocall
 ```
 
-## Roadmap / TODO
-This project is at **prototype stage**. To make it actually usable, the following need to be implemented:
+## Limitations / Next Steps
 
-- [ ] Replace raw UDP transport with **WebRTC** (via [libdatachannel](https://github.com/paullouisageneau/libdatachannel) or Google WebRTC)  
-  - Provides encryption (DTLS-SRTP)  
-  - NAT traversal (ICE, STUN, TURN)  
-  - Reliable transport (retransmissions, congestion control)  
-- [ ] Implement a simple **signaling server** (WebSocket/HTTP) to exchange SDP offers/answers and ICE candidates  
-- [ ] Switch from JPEG to a **real video codec** (H.264, VP8, or AV1)  
-- [ ] Add proper audio support  
-- [ ] User interface (start/stop call, peer list)  
-- [ ] Cross-platform testing (Windows, Linux, maybe Android)  
+This project is currently a **prototype**. If developed further, it would require:
+
+- Replacing raw UDP with a proper transport (e.g. WebRTC for encryption, NAT traversal, and reliability)  
+- A signaling server for peer discovery and connection setup  
+- Real video codec support (H.264, VP8, AV1) instead of JPEG frames  
+- Full audio support with proper encoding/decoding  
+- A usable user interface (start/stop call, peer list)  
+- Cross-platform support (Windows, Linux, Android)
 
 ## What did I learn until this point?
 
