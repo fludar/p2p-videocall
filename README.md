@@ -1,59 +1,84 @@
-# P2P Video Call (Experimental)
 
-This is an experimental peer-to-peer video calling application written in C++.  
-Currently it sends **JPEG frames over raw UDP sockets**, which makes it more of a proof-of-concept than a usable app.
+<h1 align="center">
+  Peer2Peer Videocall App
+</h1>
 
-⚠️ **Warning**: This project is not secure or production-ready. It does not include NAT traversal, encryption, or reliability mechanisms.  
+<h4 align="center">A basic P2P app that streams video using raw UDP packets</h4>
 
-## Features (current)
-- Captures frames from the local camera
-- Encodes them as JPEG
-- Sends frames over UDP sockets to a peer
-- Very basic rendering of incoming frames
+<p align="center">
+  <a href="#key-features">Key Features</a> •
+  <a href="#build-instructions">Build Instructions</a> •
+  <a href="#screenshot">Screenshot</a> •
+  <a href="#credits">Credits</a> •
+  <a href="#what-did-i-learn">What did I learn?</a> •
+  <a href="#license">License</a>
+</p>
 
 
 
-## Build Instructions
+## 🧮 Key Features
 
-### Prerequisites
-- **CMake** (≥3.15 recommended)
-- **vcpkg** for dependency management
-- A C++17 (or newer) compiler  
-- Windows (tested) or Linux
+- Captures webcam frames and encodes them to **JPEG**
+- Transmits video frames using **UDP sockets**
+- Decodes incoming frames and displays them in real time
+- Peer-to-peer connection without a central server
 
-### Build
-```bash
-git clone https://github.com/fludar/p2p-videocall.git
-cd p2p-videocall
-mkdir build && cd build
-cmake .. -DCMAKE_TOOLCHAIN_FILE=[path to vcpkg]/scripts/buildsystems/vcpkg.cmake
-cmake --build .
-```
+## 📦 Dependencies
 
-## Running
-Start the program on two machines (or two terminals), making sure they can reach each other’s IP/port.  
-Currently you need to manually input the peer IP.
+This project uses [vcpkg](https://github.com/microsoft/vcpkg) for dependency management.  
 
-```bash
-./p2p-videocall
-```
+Required libraries:  
+- [OpenCV](https://opencv.org/) – webcam capture & video rendering  
+- [PortAudio](http://www.portaudio.com/) – audio capture/playback  
+- [Opus](https://opus-codec.org/) – audio compression codec  
+- [Winsock2 / BSD sockets] – UDP networking  
 
-## Limitations / Next Steps
+## 🛠 Build Instructions
 
-This project is currently a **prototype**. If developed further, it would require:
+1. Install [CMake](https://cmake.org/download/).  
+2. Install [vcpkg](https://github.com/microsoft/vcpkg) and integrate it with CMake:  
+   ```
+   git clone https://github.com/microsoft/vcpkg
+   cd vcpkg
+   bootstrap-vcpkg.bat   # Windows
+   ./bootstrap-vcpkg.sh  # Linux 
+   ```
+Then install dependencies:
+  
+    vcpkg install opencv portaudio opus
+3. Clone this repo and build:
+  ```
+  git clone https://github.com/fludar/p2p-video-call
+  cd p2p-video-call
+  cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+  cmake --build build
+  ```
+  
+## 📸 Screenshot
 
-- Replacing raw UDP with a proper transport (e.g. WebRTC for encryption, NAT traversal, and reliability)  
-- A signaling server for peer discovery and connection setup  
-- Real video codec support (H.264, VP8, AV1) instead of JPEG frames  
-- Full audio support with proper encoding/decoding  
-- A usable user interface (start/stop call, peer list)  
-- Cross-platform support (Windows, Linux, Android)
+![screenshot](https://raw.githubusercontent.com/fludar/p2p-videocall/main/resources/demo.gif)
 
-## What did I learn until this point?
+## 🙏 Credits
 
+## 🙏 Credits
+
+- [OpenCV](https://opencv.org/) – for video capture, JPEG encoding/decoding, and display  
+- [PortAudio](http://www.portaudio.com/) – for cross-platform audio input/output  
+- [Opus](https://opus-codec.org/) – for real-time audio compression and decompression  
+- [Winsock2](https://learn.microsoft.com/en-us/windows/win32/winsock/) – for UDP networking on Windows  
+- BSD sockets – for networking on Linux/macOS  
+- [vcpkg](https://github.com/microsoft/vcpkg) – for dependency management and easy CMake integration
+
+
+## 📖 What did I learn?
 - Basics of capturing and encoding video frames using OpenCV
 - Sending and receiving raw UDP packets
 - Simple audio capture and playback with PortAudio and Opus
 - Multi-threading and synchronization with mutexes and atomic flags
-- Handling low-level networking and socket programming in C++ 
+- Handling low-level networking and socket programming in C++
 - Error handling and resource management in multimedia applications
+
+## 📄 License
+
+This project is licensed under the **MIT License** – see the [LICENSE](LICENSE) file for details.
+
