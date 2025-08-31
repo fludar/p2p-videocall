@@ -58,7 +58,7 @@ Then install dependencies:
 
 ![screenshot](https://raw.githubusercontent.com/fludar/p2p-videocall/main/resources/demo.gif)
 
-## 🙏 Credits
+Here I used OBS for a virtual webcam since I didn't have a webcam at the momment.
 
 ## 🙏 Credits
 
